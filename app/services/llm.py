@@ -345,7 +345,7 @@ Generate {amount} search terms for stock videos, depending on the subject of a v
 2. each search term should consist of 1-3 words, always add the main subject of the video.
 3. you must only return the json-array of strings. you must not return anything else. you must not return the script.
 4. the search terms must be related to the subject of the video.
-5. reply with english search terms only.
+5. reply with chinese search terms only.
 
 ## Output Example:
 ["search term 1", "search term 2", "search term 3","search term 4","search term 5"]

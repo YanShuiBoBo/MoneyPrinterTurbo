@@ -55,54 +55,66 @@ class MaterialInfo:
 
 class VideoParams(BaseModel):
     """
+    视频生成核心参数配置模型
+    完整配置示例：
     {
-      "video_subject": "",
-      "video_aspect": "横屏 16:9（西瓜视频）",
-      "voice_name": "女生-晓晓",
-      "bgm_name": "random",
-      "font_name": "STHeitiMedium 黑体-中",
-      "text_color": "#FFFFFF",
-      "font_size": 60,
-      "stroke_color": "#000000",
-      "stroke_width": 1.5
+      "video_subject": "夏日旅行日记",  # 必填，视频核心主题描述
+      "video_aspect": "portrait",       # 竖屏9:16（抖音/快手）或 landscape 横屏16:9（YouTube/西瓜）
+      "voice_name": "女生-晓晓",        # 支持多个预置语音声线
+      "bgm_type": "random",            # 随机背景音乐或指定风格
+      "font_name": "STHeitiMedium.ttc",# 中文字体文件名称
+      "text_color": "#FFFFFF",         # 字幕文字颜色
+      "font_size": 60,                 # 字幕字号（建议范围40-80）
+      "stroke_color": "#000000",       # 文字描边颜色
+      "stroke_width": 1.5              # 描边粗细（建议0.5-2.0）
     }
     """
 
-    video_subject: str
-    video_script: str = ""  # Script used to generate the video
-    video_terms: Optional[str | list] = None  # Keywords used to generate the video
-    video_aspect: Optional[VideoAspect] = VideoAspect.portrait.value
-    video_concat_mode: Optional[VideoConcatMode] = VideoConcatMode.random.value
-    video_transition_mode: Optional[VideoTransitionMode] = None
-    video_clip_duration: Optional[int] = 5
-    video_count: Optional[int] = 1
+    # 核心内容配置
+    video_subject: str                  # 视频主题（必填，用于生成脚本和素材搜索）
+    video_script: str = ""              # 视频脚本内容（留空时自动生成）
+    video_terms: Optional[str | list] = None  # 视频关键词（如：["旅行", "海滩", "夏日"]）
 
-    video_source: Optional[str] = "pexels"
-    video_materials: Optional[List[MaterialInfo]] = (
-        None  # Materials used to generate the video
-    )
+    # 视频技术参数
+    video_aspect: Optional[VideoAspect] = VideoAspect.portrait.value  # 画面比例
+    video_concat_mode: Optional[VideoConcatMode] = VideoConcatMode.random.value  # 拼接模式：随机/顺序
+    video_transition_mode: Optional[VideoTransitionMode] = None  # 转场效果（无/淡入淡出/滑动/随机）
+    video_clip_duration: Optional[int] = 5   # 单素材最大时长（秒，建议3-15秒）
+    video_count: Optional[int] = 1          # 生成视频数量（批量生成时使用）
 
-    video_language: Optional[str] = ""  # auto detect
+    # 素材配置
+    video_source: Optional[str] = "pexels"  # 素材源（pexels/unsplash/local）
+    video_materials: Optional[List[MaterialInfo]] = None  # 自定义素材列表（优先级高于自动搜索）
 
-    voice_name: Optional[str] = ""
-    voice_volume: Optional[float] = 1.0
-    voice_rate: Optional[float] = 1.0
-    bgm_type: Optional[str] = "random"
-    bgm_file: Optional[str] = ""
-    bgm_volume: Optional[float] = 0.2
+    # 多语言配置
+    video_language: Optional[str] = ""  # 视频语言（auto自动检测/zh-CN/en等）
 
-    subtitle_enabled: Optional[bool] = True
-    subtitle_position: Optional[str] = "bottom"  # top, bottom, center
-    custom_position: float = 70.0
-    font_name: Optional[str] = "STHeitiMedium.ttc"
-    text_fore_color: Optional[str] = "#FFFFFF"
-    text_background_color: Union[bool, str] = True
+    # 语音合成配置
+    voice_name: Optional[str] = ""      # 发音人（如：女生-晓晓/男生-云扬）
+    voice_volume: Optional[float] = 1.0 # 音量大小（0.0静音 ~ 2.0两倍音量）
+    voice_rate: Optional[float] = 1.0   # 语速（0.5慢速 ~ 2.0快速）
 
-    font_size: int = 60
-    stroke_color: Optional[str] = "#000000"
-    stroke_width: float = 1.5
-    n_threads: Optional[int] = 2
-    paragraph_number: Optional[int] = 1
+    # 背景音乐配置
+    bgm_type: Optional[str] = "random"  # 音乐类型（pop/rock/acoustic/random）
+    bgm_file: Optional[str] = ""        # 自定义背景音乐文件路径（优先使用）
+    bgm_volume: Optional[float] = 0.2   # 背景音乐音量（0.0静音 ~ 1.0原声）
+
+    # 字幕渲染配置
+    subtitle_enabled: Optional[bool] = True     # 是否启用字幕
+    subtitle_position: Optional[str] = "bottom" # 字幕位置（top/bottom/center）
+    custom_position: float = 70.0        # 自定义位置（百分比，如底部向上70%位置）
+    font_name: Optional[str] = "STHeitiMedium.ttc"  # 字体文件名称（需存在于字体目录）
+    text_fore_color: Optional[str] = "#FFFFFF"  # 文字颜色（HEX格式）
+    text_background_color: Union[bool, str] = True  # 文字背景（True=半透明黑/False=无/#RRGGBDAA格式）
+
+    # 文字样式高级设置
+    font_size: int = 60                 # 基础字号（根据视频分辨率自动缩放）
+    stroke_color: Optional[str] = "#000000"  # 文字描边颜色
+    stroke_width: float = 1.5           # 描边宽度（像素）
+
+    # 系统参数
+    n_threads: Optional[int] = 2        # 渲染线程数（建议不超过CPU核心数）
+    paragraph_number: Optional[int] = 1  # 脚本段落数（用于控制内容结构复杂度）
 
 
 class SubtitleRequest(BaseModel):

@@ -47,85 +47,122 @@ def get_bgm_file(bgm_type: str = "random", bgm_file: str = ""):
 
 
 def combine_videos(
-    combined_video_path: str,
-    video_paths: List[str],
-    audio_file: str,
-    video_aspect: VideoAspect = VideoAspect.portrait,
-    video_concat_mode: VideoConcatMode = VideoConcatMode.random,
-    video_transition_mode: VideoTransitionMode = None,
-    max_clip_duration: int = 5,
-    threads: int = 2,
+        # 输出视频的保存路径
+        combined_video_path: str,
+        # 输入视频路径列表（需要拼接的原始视频）
+        video_paths: List[str],
+        # 背景音乐文件路径
+        audio_file: str,
+        # 视频比例设置（默认竖屏）
+        video_aspect: VideoAspect = VideoAspect.portrait,
+        # 拼接模式（默认随机顺序）
+        video_concat_mode: VideoConcatMode = VideoConcatMode.random,
+        # 转场效果模式（默认无转场）
+        video_transition_mode: VideoTransitionMode = None,
+        # 单个片段最大时长（默认5秒）
+        max_clip_duration: int = 5,
+        # 视频渲染线程数（默认2线程）
+        threads: int = 2,
 ) -> str:
+    # 加载背景音乐文件
     audio_clip = AudioFileClip(audio_file)
+    # 获取音频总时长（单位：秒）
     audio_duration = audio_clip.duration
+    # 记录音频时长日志
     logger.info(f"max duration of audio: {audio_duration} seconds")
-    # Required duration of each clip
+
+    # 计算每个视频片段的建议时长（此处被max_clip_duration覆盖，实际未使用）
     req_dur = audio_duration / len(video_paths)
-    req_dur = max_clip_duration
+    req_dur = max_clip_duration  # 强制使用最大片段时长
     logger.info(f"each clip will be maximum {req_dur} seconds long")
+
+    # 获取输出文件所在目录
     output_dir = os.path.dirname(combined_video_path)
 
+    # 根据选择的宽高比获取目标分辨率
     aspect = VideoAspect(video_aspect)
     video_width, video_height = aspect.to_resolution()
 
+    # 初始化最终视频片段列表
     clips = []
+    # 已处理视频总时长
     video_duration = 0
 
+    # 原始视频片段池（切割后的片段）
     raw_clips = []
-    for video_path in video_paths:
-        clip = VideoFileClip(video_path).without_audio()
-        clip_duration = clip.duration
-        start_time = 0
 
+    # 遍历所有输入视频文件
+    for video_path in video_paths:
+        # 加载视频并移除原声
+        clip = VideoFileClip(video_path).without_audio()
+        # 获取当前视频总时长
+        clip_duration = clip.duration
+        start_time = 0  # 切割起始时间
+
+        # 将长视频切割为小片段
         while start_time < clip_duration:
+            # 计算切割结束时间（不超过视频结尾）
             end_time = min(start_time + max_clip_duration, clip_duration)
+            # 截取子片段
             split_clip = clip.subclipped(start_time, end_time)
+            # 添加到原始片段池
             raw_clips.append(split_clip)
-            # logger.info(f"splitting from {start_time:.2f} to {end_time:.2f}, clip duration {clip_duration:.2f}, split_clip duration {split_clip.duration:.2f}")
+            # 更新切割起始时间
             start_time = end_time
+            # 如果是顺序模式，只取第一个有效片段
             if video_concat_mode.value == VideoConcatMode.sequential.value:
                 break
 
-    # random video_paths order
+    # 如果是随机模式，打乱片段顺序
     if video_concat_mode.value == VideoConcatMode.random.value:
         random.shuffle(raw_clips)
 
-    # Add downloaded clips over and over until the duration of the audio (max_duration) has been reached
+    # 循环添加片段直到覆盖音频时长
     while video_duration < audio_duration:
         for clip in raw_clips:
-            # Check if clip is longer than the remaining audio
+            # 处理最后一个片段
             if (audio_duration - video_duration) < clip.duration:
+                # 截取需要的剩余时长
                 clip = clip.subclipped(0, (audio_duration - video_duration))
-            # Only shorten clips if the calculated clip length (req_dur) is shorter than the actual clip to prevent still image
+            # 常规片段处理
             elif req_dur < clip.duration:
+                # 截取不超过最大时长
                 clip = clip.subclipped(0, req_dur)
+            # 统一设置帧率为30fps
             clip = clip.with_fps(30)
 
-            # Not all videos are same size, so we need to resize them
+            # 获取当前片段分辨率
             clip_w, clip_h = clip.size
+            # 分辨率不一致时需要调整
             if clip_w != video_width or clip_h != video_height:
+                # 计算宽高比
                 clip_ratio = clip.w / clip.h
                 video_ratio = video_width / video_height
 
                 if clip_ratio == video_ratio:
-                    # Resize proportionally
+                    # 直接缩放至目标分辨率
                     clip = clip.resized((video_width, video_height))
                 else:
-                    # Resize proportionally
+                    # 计算缩放比例
                     if clip_ratio > video_ratio:
-                        # Resize proportionally based on the target width
+                        # 以宽度为基准缩放
                         scale_factor = video_width / clip_w
                     else:
-                        # Resize proportionally based on the target height
+                        # 以高度为基准缩放
                         scale_factor = video_height / clip_h
 
+                    # 计算新分辨率
                     new_width = int(clip_w * scale_factor)
                     new_height = int(clip_h * scale_factor)
+                    # 缩放视频
                     clip_resized = clip.resized(new_size=(new_width, new_height))
 
+                    # 创建黑色背景
                     background = ColorClip(
-                        size=(video_width, video_height), color=(0, 0, 0)
+                        size=(video_width, video_height),
+                        color=(0, 0, 0)  # RGB黑色
                     )
+                    # 将视频合成到背景中央
                     clip = CompositeVideoClip(
                         [
                             background.with_duration(clip.duration),
@@ -137,19 +174,23 @@ def combine_videos(
                     f"resizing video to {video_width} x {video_height}, clip size: {clip_w} x {clip_h}"
                 )
 
+            # 随机选择转场方向
             shuffle_side = random.choice(["left", "right", "top", "bottom"])
             logger.info(f"Using transition mode: {video_transition_mode}")
+
+            # 应用转场效果
             if video_transition_mode.value == VideoTransitionMode.none.value:
-                clip = clip
+                pass  # 无效果
             elif video_transition_mode.value == VideoTransitionMode.fade_in.value:
-                clip = video_effects.fadein_transition(clip, 1)
+                clip = video_effects.fadein_transition(clip, 1)  # 1秒淡入
             elif video_transition_mode.value == VideoTransitionMode.fade_out.value:
-                clip = video_effects.fadeout_transition(clip, 1)
+                clip = video_effects.fadeout_transition(clip, 1)  # 1秒淡出
             elif video_transition_mode.value == VideoTransitionMode.slide_in.value:
-                clip = video_effects.slidein_transition(clip, 1, shuffle_side)
+                clip = video_effects.slidein_transition(clip, 1, shuffle_side)  # 滑动进入
             elif video_transition_mode.value == VideoTransitionMode.slide_out.value:
-                clip = video_effects.slideout_transition(clip, 1, shuffle_side)
+                clip = video_effects.slideout_transition(clip, 1, shuffle_side)  # 滑动退出
             elif video_transition_mode.value == VideoTransitionMode.shuffle.value:
+                # 随机选择转场效果
                 transition_funcs = [
                     lambda c: video_effects.fadein_transition(c, 1),
                     lambda c: video_effects.fadeout_transition(c, 1),
@@ -159,24 +200,33 @@ def combine_videos(
                 shuffle_transition = random.choice(transition_funcs)
                 clip = shuffle_transition(clip)
 
+            # 二次时长校验
             if clip.duration > max_clip_duration:
                 clip = clip.subclipped(0, max_clip_duration)
 
+            # 将处理后的片段加入最终列表
             clips.append(clip)
+            # 更新总时长
             video_duration += clip.duration
+
+    # 将片段列表转换为合成剪辑
     clips = [CompositeVideoClip([clip]) for clip in clips]
+    # 拼接所有视频片段
     video_clip = concatenate_videoclips(clips)
+    # 强制设置输出帧率
     video_clip = video_clip.with_fps(30)
     logger.info("writing")
-    # https://github.com/harry0703/MoneyPrinterTurbo/issues/111#issuecomment-2032354030
+
+    # 输出视频文件（重要参数说明）
     video_clip.write_videofile(
-        filename=combined_video_path,
-        threads=threads,
-        logger=None,
-        temp_audiofile_path=output_dir,
-        audio_codec="aac",
-        fps=30,
+        filename=combined_video_path,  # 输出路径
+        threads=threads,  # 多线程渲染
+        logger=None,  # 禁用moviepy日志
+        temp_audiofile_path=output_dir,  # 临时文件存放目录
+        audio_codec="aac",  # 音频编码格式
+        fps=30  # 输出帧率
     )
+    # 释放视频资源
     video_clip.close()
     logger.success("completed")
     return combined_video_path
