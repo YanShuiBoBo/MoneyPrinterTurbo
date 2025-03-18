@@ -208,54 +208,69 @@ def generate_final_videos(
 
 
 def start(task_id, params: VideoParams, stop_at: str = "video"):
+    # 记录任务启动日志并更新任务状态
     logger.info(f"start task: {task_id}, stop_at: {stop_at}")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=5)
 
+    # 参数类型转换（确保video_concat_mode是枚举类型）
     if type(params.video_concat_mode) is str:
         params.video_concat_mode = VideoConcatMode(params.video_concat_mode)
 
-    # 1. Generate script
+    # ------------------------ 阶段1：生成视频脚本 ------------------------
+    # 调用AI生成视频文案脚本
     video_script = generate_script(task_id, params)
+    # 错误处理：脚本生成失败时标记任务失败
     if not video_script or "Error: " in video_script:
         sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
         return
 
+    # 更新任务进度至10%
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=10)
 
+    # 停止点检查：如果用户只需要生成脚本则提前返回
     if stop_at == "script":
         sm.state.update_task(
             task_id, state=const.TASK_STATE_COMPLETE, progress=100, script=video_script
         )
         return {"script": video_script}
 
-    # 2. Generate terms
+    # ------------------------ 阶段2：生成关键词 ------------------------
+    # 仅当需要在线获取素材时生成关键词
     video_terms = ""
     if params.video_source != "local":
+        # 调用AI提取视频关键词（用于后续素材搜索）
         video_terms = generate_terms(task_id, params, video_script)
         if not video_terms:
             sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
             return
 
+    # 持久化保存生成的脚本数据
     save_script_data(task_id, video_script, video_terms, params)
 
+    # 停止点检查：如果用户只需要生成关键词则提前返回
     if stop_at == "terms":
         sm.state.update_task(
             task_id, state=const.TASK_STATE_COMPLETE, progress=100, terms=video_terms
         )
         return {"script": video_script, "terms": video_terms}
 
+    # 更新任务进度至20%
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=20)
 
-    # 3. Generate audio
+    # ------------------------ 阶段3：生成语音 ------------------------
+    # 文字转语音并获取音频时长、字幕信息
     audio_file, audio_duration, sub_maker = generate_audio(
         task_id, params, video_script
     )
+    # 错误处理：语音生成失败时标记任务失败
     if not audio_file:
         sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
         return
 
+    # 更新任务进度至30%
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=30)
 
+    # 停止点检查：如果用户只需要生成音频则提前返回
     if stop_at == "audio":
         sm.state.update_task(
             task_id,
@@ -265,11 +280,13 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
         )
         return {"audio_file": audio_file, "audio_duration": audio_duration}
 
-    # 4. Generate subtitle
+    # ------------------------ 阶段4：生成字幕 ------------------------
+    # 根据语音生成时间轴匹配的字幕文件
     subtitle_path = generate_subtitle(
         task_id, params, video_script, sub_maker, audio_file
     )
 
+    # 停止点检查：如果用户只需要生成字幕则提前返回
     if stop_at == "subtitle":
         sm.state.update_task(
             task_id,
@@ -279,16 +296,20 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
         )
         return {"subtitle_path": subtitle_path}
 
+    # 更新任务进度至40%
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=40)
 
-    # 5. Get video materials
+    # ------------------------ 阶段5：获取素材 ------------------------
+    # 根据关键词和音频时长获取视频素材
     downloaded_videos = get_video_materials(
         task_id, params, video_terms, audio_duration
     )
+    # 错误处理：素材获取失败时标记任务失败
     if not downloaded_videos:
         sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
         return
 
+    # 停止点检查：如果用户只需要素材则提前返回
     if stop_at == "materials":
         sm.state.update_task(
             task_id,
@@ -298,31 +319,38 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
         )
         return {"materials": downloaded_videos}
 
+    # 更新任务进度至50%
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=50)
 
-    # 6. Generate final videos
+    # ------------------------ 阶段6：生成最终视频 ------------------------
+    # 视频合成核心流程（素材剪辑+音频合成+字幕渲染）
     final_video_paths, combined_video_paths = generate_final_videos(
         task_id, params, downloaded_videos, audio_file, subtitle_path
     )
 
+    # 错误处理：最终视频生成失败时标记任务失败
     if not final_video_paths:
         sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
         return
 
+    # 任务完成日志记录
     logger.success(
         f"task {task_id} finished, generated {len(final_video_paths)} videos."
     )
 
+    # 构建返回结果集
     kwargs = {
-        "videos": final_video_paths,
-        "combined_videos": combined_video_paths,
-        "script": video_script,
-        "terms": video_terms,
-        "audio_file": audio_file,
-        "audio_duration": audio_duration,
-        "subtitle_path": subtitle_path,
-        "materials": downloaded_videos,
+        "videos": final_video_paths,  # 最终视频路径列表
+        "combined_videos": combined_video_paths,  # 中间合成视频路径（调试用）
+        "script": video_script,  # 生成的文案脚本
+        "terms": video_terms,  # 素材搜索关键词
+        "audio_file": audio_file,  # 生成的语音文件路径
+        "audio_duration": audio_duration,  # 音频时长（秒）
+        "subtitle_path": subtitle_path,  # 字幕文件路径
+        "materials": downloaded_videos,  # 下载的原始素材列表
     }
+
+    # 更新任务状态至完成（进度100%）
     sm.state.update_task(
         task_id, state=const.TASK_STATE_COMPLETE, progress=100, **kwargs
     )
